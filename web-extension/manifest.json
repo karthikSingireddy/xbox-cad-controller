@@ -1,0 +1,31 @@
+{
+    "name": "3D mouse script replacer",
+    "description": "replaces the 3dconnexion script with the custom script meant to work with an xbox controller",
+    "version": "0.1.0",
+    "manifest_version": 3,
+    "background": {
+        "service_worker": "background.js"
+    },
+    "permissions": [
+        "webRequest"
+    ],
+    "host_permissions": [
+        "*://cad.onshape.com/*"
+    ],
+    "content_scripts": [
+        {
+            "matches": [
+                "*://cad.onshape.com/*"
+            ],
+            "js": ["contentScript.js"],
+            "run_at": "document_start"
+        }
+    ],
+    "web_accessible_resources": [
+        {
+            "resources": ["js/*.js"],
+            "matches": ["*://cad.onshape.com/*"]
+        }
+    ]
+    
+}

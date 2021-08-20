@@ -1,0 +1,1386 @@
+<!DOCTYPE html>
+<html>
+  <!--
+  /**
+  * Copyright (c) 2013-2015 3Dconnexion. All rights reserved.
+  * License:
+  *   This file in licensed under the terms of the "3Dconnexion
+  *   Software Development Kit" license agreement found in the
+  *   "LicenseAgreementSDK.txt" file.
+  *   All rights not expressly granted by 3Dconnexion are reserved.
+  *
+  */
+
+  ///////////////////////////////////////////////////////////////////
+  //
+  // $ Id: $
+  //
+  // 09/14/15 MSB Added getter for view.rotatable
+  // 05/29/15 MSB Added coordinate system and front view getters
+  // 05/28/15 NGO Use 3dconnexion.min.js
+  // 05/04/15 MSB Added hit-testing and a grid and axes 
+  //              Added get constructionPlane
+  // 04/29/15 MSB Added getPointerPosition() callback 
+  //              Added comments
+  // 04/27/15 MSB Initial  
+  //
+-->
+  <head>
+    <title>3Dconnexion THREE.js Sample</title>
+    <meta http-equiv="content-type" content="text/html;charset=UTF-8" />
+    <script>
+      TRACE_MESSAGES = false;
+    </script>
+    <script
+      type="text/javascript"
+      src="https://3dconnexion.com/technical_support/jquery-1.10.2.min.js"
+    ></script>
+    <script
+      type="text/javascript"
+      src="https://3dconnexion.com/technical_support/three.js"
+    ></script>
+    <!--script
+      type="text/javascript"
+      src="https://3dconnexion.com/technical_support/3dconnexion.min.js"
+    ></script --> 
+    <!-- <script type="text/javascript" src="3dconnexion.min.js"></script> -->
+    <script src="bower_components/autobahn/autobahn/autobahn.min.js"></script>
+    <script type="text/javascript" src="3dconnexion2.js"></script>
+
+
+    <script defer type="text/javascript">
+      // For a perspective project define var PERSPECTIVE = true;
+      var PERSPECTIVE = false;
+      let UPDATE_MATRIX_LOG = false;
+      function GL() {
+        this.gl = {};
+        this.model = null;
+        this.renderer = null;
+        this.camera = null;
+        this.scene = null;
+        this.grid = null;
+        this.axes = null;
+
+        this.animating = false;
+
+        this.initGL = function (container) {
+          var self = this;
+          try {
+            self.gl.viewportWidth = container.offsetWidth;
+            self.gl.viewportHeight = container.offsetHeight;
+            var aspect = self.gl.viewportWidth / self.gl.viewportHeight;
+
+            self.gl.fov = 33; // vertical fov
+            self.gl.frustumNear = 0.01;
+            self.gl.frustumFar = 1000;
+            self.gl.left =
+              -8 * Math.tan((self.gl.fov * Math.PI) / 360) * aspect;
+            self.gl.right = -self.gl.left;
+            self.gl.bottom = self.gl.left / aspect;
+            self.gl.top = -self.gl.bottom;
+
+            // Create a WebGL renderer
+            self.renderer = new THREE.WebGLRenderer({ antialias: true });
+            self.renderer.setClearColor(0x000000, 1);
+
+            // set the renderer viewport
+            self.renderer.setSize(
+              self.gl.viewportWidth,
+              self.gl.viewportHeight
+            );
+
+            // attach the renderer supplied DOM element to the container
+            container.appendChild(self.renderer.domElement);
+          } catch (e) {}
+          if (!this.renderer) {
+            alert("Could not initialize WebGL, sorry :-(");
+          }
+        };
+
+        this.webGLStart = function () {
+          var self = this;
+          var container = document.getElementById("container");
+
+          self.initGL(container);
+
+          self.scene = new THREE.Scene();
+          self.grid = new THREE.GridHelper(5, 0.5);
+          self.grid.setColors(
+            new THREE.Color(0x888888),
+            new THREE.Color(0x444444)
+          );
+          self.scene.add(self.grid);
+          self.axes = new THREE.AxisHelper(1);
+          self.scene.add(self.axes);
+
+          // move the grid down a bit
+          self.grid.translateY(-0.75);
+
+          if (PERSPECTIVE)
+            self.camera = new THREE.PerspectiveCamera(
+              self.gl.fov,
+              self.gl.viewportWidth / self.gl.viewportHeight,
+              self.gl.frustumNear,
+              self.gl.frustumFar
+            );
+          else
+            self.camera = new THREE.OrthographicCamera(
+              self.gl.left,
+              self.gl.right,
+              self.gl.top,
+              self.gl.bottom,
+              -self.gl.frustumFar,
+              self.gl.frustumFar
+            );
+
+          // move the camera to [0,0,10]
+          self.camera.position.set(0, 0, 10);
+          self.camera.lookAt(self.scene.position);
+
+          // add the camera to the scene
+          self.scene.add(self.camera);
+
+          // load the model and add it to the scene
+          self.model = self.loadModel();
+          self.scene.add(self.model);
+
+          // draw
+          self.updateScene();
+
+          // initialize the 3d mouse
+          self.init3DMouse();
+        };
+
+        this.loadModel = function () {
+          var pyramidGeometry = new THREE.CylinderGeometry(
+            0,
+            1.5,
+            1.5,
+            4,
+            false
+          );
+          for (i = 0; i < pyramidGeometry.faces.length; i++) {
+            if (pyramidGeometry.faces[i] instanceof THREE.Face4) {
+              pyramidGeometry.faces[i].vertexColors[0] = new THREE.Color(
+                0xff0000
+              );
+              if (i % 2 == 0) {
+                pyramidGeometry.faces[i].vertexColors[1] = new THREE.Color(
+                  0x00ff00
+                );
+                pyramidGeometry.faces[i].vertexColors[2] = new THREE.Color(
+                  0x0000ff
+                );
+              } else {
+                pyramidGeometry.faces[i].vertexColors[1] = new THREE.Color(
+                  0x0000ff
+                );
+                pyramidGeometry.faces[i].vertexColors[2] = new THREE.Color(
+                  0x00ff00
+                );
+              }
+              pyramidGeometry.faces[i].vertexColors[3] = new THREE.Color(
+                0xff0000
+              );
+            } else {
+              pyramidGeometry.faces[i].vertexColors[0] = new THREE.Color(
+                0xff0000
+              );
+              pyramidGeometry.faces[i].vertexColors[1] = new THREE.Color(
+                0x00ff00
+              );
+              pyramidGeometry.faces[i].vertexColors[2] = new THREE.Color(
+                0x0000ff
+              );
+            }
+          }
+
+          var pyramidMaterial = new THREE.MeshBasicMaterial({
+            vertexColors: THREE.VertexColors,
+            side: THREE.DoubleSide,
+          });
+
+          // move the geometry away from [0,0,0]
+          var transform = new THREE.Matrix4();
+          transform.makeTranslation(-1.5, 0.0, 4.0);
+          pyramidGeometry.applyMatrix(transform);
+
+          pyramidGeometry.computeBoundingBox();
+
+          var model = new THREE.Mesh(pyramidGeometry, pyramidMaterial);
+          return model;
+        };
+
+        // update the scene after a change
+        this.updateScene = function () {
+          // if we are not animating request an animation frame
+          // otherwise do nothing as the scene will be redrawn in the animation loop
+          var self = this;
+          if (!self.animating)
+            window.requestAnimationFrame(self.renderScene.bind(self));
+        };
+
+        // the callback that results in the scene being rendered
+        this.renderScene = function (time) {
+          var self = this;
+          self.renderer.render(self.scene, self.camera);
+          if (self.animating)
+            window.requestAnimationFrame(self.renderScene.bind(self));
+        };
+
+        ///////////////////////////////////////////////////////////////////////
+        // the 3dconnexion.js callbacks
+        // getCoordinateSystem is queried to determine the coordinate system of the application
+        // described as X to the right, Y-up and Z out of th screen
+        // Normally this will be the inverse of the pose of the front view
+        this.getCoordinateSystem = function () {
+          // In this sample the cs has X to the right, Y-up, and Z out of the screen
+          return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+          // The following would be for X to the right, Z-up, Y into the screen
+          // return [1,0,0,0, 0,0,1,0, 0,-1,0,0, 0,0,0,1];
+        };
+
+        // getConstructionPlane is queried in orthographic projections to distinguish between 3D and 2D projections
+        // In an axes aligned projection with the camera looking down the normal of the construction plane.
+        // Effectively this means that in the orthographic projection in this sample 3D mouse rotations will be disabled
+        // when the top or bottom view is selected.
+        this.getConstructionPlane = function () {
+          var self = this;
+
+          // a point on the construction plane
+          var origin = new THREE.Vector3(0, 0, 0);
+          origin.applyMatrix4(self.grid.matrixWorld);
+
+          // In this sample the up-axis is the y-axis
+          var yAxis = new THREE.Vector3();
+          self.grid.matrixWorld.extractBasis(
+            new THREE.Vector3(),
+            yAxis,
+            new THREE.Vector3()
+          );
+          var d0 = yAxis.dot(origin);
+          // return the plane equation as an array
+          return [yAxis.x, yAxis.y, yAxis.z, -d0];
+        };
+
+        // getFov is called when the navlib requests the fov
+        // in three.js the fov is in degrees, the 3dconnexion lib uses radians
+        // in three.js the fov is the vertical fov.
+        // In this example we return the diagonal fov
+        this.getFov = function () {
+          var fov =
+            2 *
+            Math.atan(
+              Math.tan2(this.camera.fov * Math.PI, 360) *
+                Math.sqrt(1 + this.camera.aspect * this.camera.aspect)
+            );
+          if (TRACE_MESSAGES) console.log("fov=" + (fov * 180) / Math.PI);
+
+          return fov;
+        };
+
+        this.getFrontView = function () {
+          // In this sample the front view has X to the right, Y-up, and Z out of the screen
+          return [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
+          // The following would be for X to the right, Z-up, Y into the screen
+          // return [1,0,0,0, 0,0,-1,0, 0,1,0,0, 0,0,0,1];
+        };
+
+        // getLookAt is called when the navlib needs to know if a ray fired into the screen
+        // hits a surface of the model.
+        // origin: is the origin of the ray
+        // direction: is the rays's direction
+        // aperture: is the diameter of the ray
+        // onlySelection: true - only attempt hits on the selection set, false - everything
+        this.getLookAt = function () {
+          var self = this;
+
+          // Create a raycaster
+          var raycaster = new THREE.Raycaster(
+            self.look.origin,
+            self.look.direction,
+            self.gl.frustumNear,
+            self.gl.frustumFar
+          );
+          raycaster.precision = self.look.aperture / 2;
+          raycaster.linePrecision = self.look.aperture / 2;
+
+          // do the hit-testing
+          var intersects = raycaster.intersectObjects(self.scene.children);
+          if (intersects.length > 0) {
+            for (var i = 0, l = intersects.length; i < l; ++i) {
+              // skip the grid
+              if (intersects[i].object === self.grid) continue;
+              // skip the axes
+              if (intersects[i].object === self.axes) continue;
+              // skip invisible objects
+              if (!intersects[i].object.visible) continue;
+
+              var lookAt = new THREE.Vector3();
+              lookAt.copy(self.look.direction);
+              lookAt.multiplyScalar(intersects[0].distance);
+              lookAt.add(self.look.origin);
+              if (TRACE_MESSAGES)
+                console.log(
+                  "lookAt=[" +
+                    lookAt.x +
+                    ", " +
+                    lookAt.y +
+                    ", " +
+                    lookAt.z +
+                    "]"
+                );
+              return lookAt.toArray();
+            }
+          }
+          // If nothing was hit return nothing
+          return null;
+        };
+
+        // getModelExtents is called when the navlib requests the bounding box
+        // of the model
+        this.getModelExtents = function () {
+          var boundingBox = this.model.geometry.boundingBox;
+          return [
+            boundingBox.min.x,
+            boundingBox.min.y,
+            boundingBox.min.z,
+            boundingBox.max.x,
+            boundingBox.max.y,
+            boundingBox.max.z,
+          ];
+        };
+
+        // getPerspective is called when the navlib needs to know the projection
+        this.getPerspective = function () {
+          return PERSPECTIVE;
+        };
+
+        // getPivotPosition is called when the navlib needs to know where the application's rotation pivot is located
+        // in this example we return the center of the geometry's bounding box
+        this.getPivotPosition = function () {
+          var volumeCenter = new THREE.Vector3();
+          volumeCenter.addVectors(
+            this.model.geometry.boundingBox.min,
+            this.model.geometry.boundingBox.max
+          );
+          volumeCenter.divideScalar(2);
+          if (TRACE_MESSAGES)
+            console.log(
+              "pivot=[" +
+                volumeCenter.x +
+                ", " +
+                volumeCenter.y +
+                ", " +
+                volumeCenter.z +
+                "]"
+            );
+          return volumeCenter.toArray();
+        };
+
+        // getPointerPosition is called when the navlib needs to know where the
+        // mouse pointer is on the projection/near plane
+        this.getPointerPosition = function () {
+          var self = this;
+
+          var canvas = document.getElementById("container");
+          var rect = canvas.getBoundingClientRect();
+
+          // position of the mouse in the canvas (windows [0,0] is at the top-left of the screen, opengl[0,0] is at the bottom-left)
+          // the position is tracked relative to the window so we need to subtract the relative position of the canvas
+          // Setting z=0 puts the mouse on the near plane.
+          var pos_opengl = new THREE.Vector3(
+            window.mouseX - rect.left,
+            self.gl.viewportHeight - (window.mouseY - rect.top),
+            0.0
+          );
+          if (TRACE_MESSAGES)
+            console.log(
+              "Mouse Position =[" +
+                pos_opengl.x +
+                ", " +
+                pos_opengl.y +
+                ", " +
+                pos_opengl.z +
+                "]"
+            );
+
+          // three.js has screen coordinates that are in normalized device coordinates (-1,-1) bottom left and (1,1) top right.
+          var pos = new THREE.Vector3(
+            (pos_opengl.x / self.gl.viewportWidth) * 2.0 - 1.0,
+            (pos_opengl.y / self.gl.viewportHeight) * 2.0 - 1.0,
+            pos_opengl.z * 2.0 - 1
+          );
+
+          // make sure the matrices are up to date
+          self.camera.updateProjectionMatrix();
+          self.camera.updateMatrixWorld();
+
+          pos.unproject(self.camera);
+          if (TRACE_MESSAGES) {
+            var screen = pos.clone();
+            screen.project(self.camera);
+            console.log(
+              "Screen Position =[" +
+                screen.x +
+                ", " +
+                screen.y +
+                ", " +
+                screen.z +
+                "]"
+            );
+            console.log(
+              "Pointer Position =[" + pos.x + ", " + pos.y + ", " + pos.z + "]"
+            );
+            if (!PERSPECTIVE) {
+              var worldMatrix = self.camera.matrixWorld.clone();
+              var bottomLeft = new THREE.Vector3(
+                self.camera.left,
+                self.camera.bottom,
+                -self.camera.far
+              );
+              bottomLeft.applyMatrix4(worldMatrix);
+              var topRight = new THREE.Vector3(
+                self.camera.right,
+                self.camera.top,
+                -self.camera.near
+              );
+              topRight.applyMatrix4(worldMatrix);
+              console.log(
+                "View world extents = [" +
+                  bottomLeft.x +
+                  ", " +
+                  bottomLeft.y +
+                  ", " +
+                  bottomLeft.z +
+                  "]" +
+                  "[" +
+                  topRight.x +
+                  ", " +
+                  topRight.y +
+                  ", " +
+                  topRight.z +
+                  "]"
+              );
+            }
+          }
+          return pos.toArray();
+        };
+
+        this.getViewRotatable = function () {
+          return true;
+        };
+        // getViewExtents is called when the navlib requests the bounding box
+        // of the view. This occurs in orthographic view projections
+        this.getViewExtents = function () {
+          return [
+            this.camera.left,
+            this.camera.bottom,
+            -this.camera.far,
+            this.camera.right,
+            this.camera.top,
+            -this.camera.near,
+          ];
+        };
+
+        // getViewFrustum is called when the navlib requests the frustum of the view. This occurs in perspective view projections
+        // three.js does not expose the frustum, so this needs to be calculated from the fov and the near plane.
+        // Note the fov in three.js is the vertical fov.
+        this.getViewFrustum = function () {
+          var self = this;
+          var tan_halffov = Math.tan((self.gl.fov * Math.PI) / 360);
+          var bottom = -self.camera.near * tan_halffov;
+          var left = bottom * self.camera.aspect;
+          if (TRACE_MESSAGES)
+            console.log(
+              "frustum=[" +
+                left +
+                ", " +
+                -left +
+                ", " +
+                bottom +
+                ", " +
+                -bottom +
+                ", " +
+                self.camera.near +
+                ", " +
+                self.camera.far +
+                "]"
+            );
+          return [
+            left,
+            -left,
+            bottom,
+            -bottom,
+            self.camera.near,
+            self.camera.far,
+          ];
+        };
+
+        // getViewMatrix is called when the navlib requests the view matrix
+        this.getViewMatrix = function () {
+          // THREE.js matrices are column major (same as openGL)
+          // so we need to convert the result to row major
+          var rowMajor = this.camera.matrixWorld;
+          rowMajor.transpose();
+          // console.log({ rowMajor });
+          return rowMajor.toArray();
+        };
+
+        ///////////////////////////////////////////////////////////////////////////////////////////
+        // Hit test properties
+        // these are used by getLookAt and set by the 3dconnexion navlib
+        this.look = {
+          origin: new THREE.Vector3(),
+          direction: new THREE.Vector3(),
+          aperture: 0.01,
+          selection: false,
+        };
+
+        this.putLookFrom = function (data) {
+          this.look.origin.set(data[0], data[1], data[2]);
+        };
+
+        this.putLookDirection = function (data) {
+          this.look.direction.set(data[0], data[1], data[2]);
+        };
+
+        this.putLookAperture = function (data) {
+          this.look.aperture = data;
+        };
+
+        this.putSelectionOnly = function (data) {
+          this.look.selection = data;
+        };
+
+        // putViewExtents is called when the navlib needs to zoom the view
+        // in an orthographic view projection
+        this.putViewExtents = function (data) {
+          var self = this;
+          self.camera.left = data[0];
+          self.camera.bottom = data[1];
+          self.camera.right = data[3];
+          self.camera.top = data[4];
+          self.camera.updateProjectionMatrix();
+        };
+
+        // putViewMatrix is called when the navlib sets the view matrix
+        this.putViewMatrix = function (data) {
+          if (UPDATE_MATRIX_LOG) console.log(data);
+          // console.log(this.camera);
+          // Note data is a row major matrix
+          var cameraMatrix = new THREE.Matrix4();
+
+          // Convert to column major
+          cameraMatrix.fromArray(data);
+          // console.log(cameraMatrix, this.camera);
+          cameraMatrix.transpose();
+
+          // console.log(cameraMatrix)
+
+          // update the camera
+          cameraMatrix.decompose(
+            this.camera.position,
+            this.camera.quaternion,
+            this.camera.scale
+          );
+          this.camera.updateMatrixWorld(true);
+
+          // request a redraw
+          this.updateScene();
+        };
+
+        this.update = function () {
+          this.updateScene();
+        };
+
+        // putFov is called when the navlib sets the fov
+        this.putFov = function (data) {
+          this.gl.fov = (data * 180) / Math.PI;
+        };
+
+        // onStartMotion is called when the 3DMouse starts sending data
+        this.onStartMotion = function () {
+          var self = this;
+          if (!self.animating) {
+            self.animating = true;
+            window.requestAnimationFrame(self.renderScene.bind(self));
+          }
+        };
+
+        // onStopMotion is called when the 3DMouse stops sending data
+        this.onStopMotion = function () {
+          this.animating = false;
+        };
+
+        ///////////////////////////////////////////////////////////////////////
+        // the 3dconnexion 3DMouse initialization
+        this.init3DMouse = function () {
+          var self = this;
+          self._3Dconnexion = new _3Dconnexion(self);
+          if (!self._3Dconnexion.connect()) {
+            if (TRACE_MESSAGES)
+              console.log("Cannot connect to 3Dconnexion NL-Proxy");
+          }
+        };
+
+        this.onConnect = function () {
+          var self = this;
+          var namePos = window.location.pathname.lastIndexOf("/");
+          var name = window.location.pathname.substring(namePos + 1);
+          // we need to pass in a focusable object
+          // we can use the <div/> if it has a tabindex
+          var canvas = document.getElementById("container");
+          self._3Dconnexion.create3dmouse(canvas, name);
+        };
+
+        this.onDisconnect = function (reason) {
+          if (TRACE_MESSAGES)
+            console.log("3Dconnexion NL-Proxy disconnected " + reason);
+        };
+      }
+
+      function demoStart() {
+        var container = document.getElementById("container");
+        container.focus();
+        webGL = new GL();
+        webGL.webGLStart();
+      }
+
+      function scale(n) {
+        let matrix = [n, 0, 0, 0, 0, n, 0, 0, 0, 0, n, 10, 0, 0, 0, 1];
+        printMatrix(webGL.getViewMatrix());
+
+        webGL.putViewMatrix(matrix);
+
+        printMatrix(webGL.getViewMatrix());
+      }
+
+      function printMatrix(matrix, name = "") {
+        console.log(name);
+        console.log(matrix[0], matrix[1], matrix[2], matrix[3]);
+        console.log(matrix[4], matrix[5], matrix[6], matrix[7]);
+        console.log(matrix[8], matrix[9], matrix[10], matrix[11]);
+        console.log(matrix[12], matrix[13], matrix[14], matrix[15]);
+        console.log("-------------------");
+      }
+
+      function enable() {
+        window.addEventListener("keydown", handleKeyDown);
+      }
+
+      function relativeMovement(event) {
+        const code = event.keyCode;
+        if (code < 73 || code > 76) return false;
+
+        let view_matrix = webGL.getViewMatrix();
+        const cx = view_matrix[3],
+          cy = view_matrix[7],
+          cz = view_matrix[11];
+
+        const cameraPos = new THREE.Vector3(cx, cy, cz);
+        const cameraTarget = new THREE.Vector3(0, 0, 0);
+        const cameraDirection = cameraPos.sub(cameraTarget).normalize();
+
+        // let cameraRight = new THREE.Vector3(0, 1, 0); // cardinal up
+        let cameraRight = getRelativeAxes().up;
+        cameraRight.cross(cameraDirection);
+        cameraRight.normalize();
+
+        let cameraUp = new THREE.Vector3(
+          cameraDirection.x,
+          cameraDirection.y,
+          cameraDirection.z
+        );
+        cameraUp.cross(cameraRight);
+        cameraUp.normalize();
+
+        cameraRight.multiplyScalar(0.25);
+        cameraUp.multiplyScalar(0.25);
+        cameraDirection.multiplyScalar(0.25);
+
+        if (code == 73) {
+          // I
+          view_matrix[3] += cameraUp.x;
+          view_matrix[7] += cameraUp.y;
+          view_matrix[11] += cameraUp.z;
+        }
+        if (code == 75) {
+          // K
+          view_matrix[3] -= cameraUp.x;
+          view_matrix[7] -= cameraUp.y;
+          view_matrix[11] -= cameraUp.z;
+        }
+        if (code == 74) {
+          // J
+          view_matrix[3] -= cameraRight.x;
+          view_matrix[7] -= cameraRight.y;
+          view_matrix[11] -= cameraRight.z;
+        }
+        if (code == 76) {
+          // L
+          view_matrix[3] += cameraRight.x;
+          view_matrix[7] += cameraRight.y;
+          view_matrix[11] += cameraRight.z;
+        }
+        let v = new THREE.Vector3(cx, cy, cz);
+        // console.log(v);
+        if (code == "zoom+" && v.length() > 0.5) {
+          view_matrix[3] -= cameraDirection.x;
+          view_matrix[7] -= cameraDirection.y;
+          view_matrix[11] -= cameraDirection.z;
+        }
+        if (code == "zoom-") {
+          view_matrix[3] += cameraDirection.x;
+          view_matrix[7] += cameraDirection.y;
+          view_matrix[11] += cameraDirection.z;
+        }
+
+        webGL.putViewMatrix(view_matrix);
+        webGL.updateScene();
+        return true;
+      }
+
+      function handleKeyDown(event) {
+        if (
+          event.code === "KeyG" ||
+          event.code === "KeyV" ||
+          event.code === "KeyB" ||
+          event.code === "KeyN"
+        ) {
+          relativeRotationV2(event);
+          return;
+        }
+
+        const code = event.keyCode;
+
+        let res = relativeMovement(event);
+        if (res) return;
+        let curMatrix = webGL.getViewMatrix();
+        if (code === 65) {
+          // A
+          curMatrix[3] -= 0.25;
+        }
+        if (code === 68) {
+          // D
+          curMatrix[3] += 0.25;
+        }
+        if (code === 87) {
+          // W
+          curMatrix[7] += 0.25;
+        }
+        if (code === 83) {
+          // S
+          curMatrix[7] -= 0.25;
+        }
+        if (code === 82) {
+          // R
+          curMatrix[11] += 0.25;
+        }
+        if (code === 70) {
+          // F
+          curMatrix[11] -= 0.25;
+        }
+
+        let rotationSens = 0.1;
+        if (code <= 40 && code >= 37) {
+          let matrix = new THREE.Matrix4();
+          matrix.fromArray(webGL.getViewMatrix());
+          if (code === 37) {
+            // left
+            matrix.makeRotationY(-rotationSens);
+          }
+          if (code === 39) {
+            // right
+            matrix.makeRotationY(rotationSens);
+          }
+          if (code === 38) {
+            // up
+            matrix.makeRotationX(rotationSens);
+          }
+          if (code === 40) {
+            // down
+            matrix.makeRotationX(-rotationSens);
+          }
+
+          let curPositionMatrix = new THREE.Matrix4();
+          curPositionMatrix.fromArray(webGL.getViewMatrix());
+
+          curMatrix = curPositionMatrix.multiply(matrix).toArray();
+        }
+
+        if (code == 72) {
+          debugVector(
+            getNormalVector(webGL.getViewMatrix(), webGL.getPivotPosition()),
+            webGL.getPivotPosition()
+          );
+        }
+
+        webGL.putViewMatrix(curMatrix);
+      }
+
+      function relativeRotationV2({ code }) {
+        const { up, right, front } = getRelativeAxesForRotation();
+
+        let rotationAngle = 0;
+
+        const rotationSens = 0.035;
+        if (code === "KeyN") {
+          rotationAngle -= rotationSens;
+        }
+        if (code === "KeyV") {
+          rotationAngle += rotationSens;
+        }
+        if (code === "KeyG") {
+          rotationAngle += rotationSens;
+        }
+        if (code === "KeyB") {
+          rotationAngle -= rotationSens;
+        }
+        console.log(rotationAngle);
+
+        const rotationMatrix = new THREE.Matrix4();
+
+        if (codeMatch(code, ["KeyN", "KeyV"])) {
+          rotationMatrix.makeRotationAxis(up, rotationAngle);
+        } else if (codeMatch(code, ["KeyG", "KeyB"])) {
+          rotationMatrix.makeRotationAxis(right, rotationAngle);
+        }
+
+        const viewMatrix = new THREE.Matrix4().fromArray(webGL.getViewMatrix());
+        viewMatrix.multiply(rotationMatrix);
+
+        // printMatrix(viewMatrix.toArray(), "new view matrix");
+        webGL.putViewMatrix(viewMatrix.toArray());
+      }
+
+      function codeMatch(code, codes) {
+        let match = false;
+        codes.forEach((c) => {
+          if (code === c) match = true;
+        });
+        return match;
+      }
+
+      function relativeRotation({ code }) {
+        /*
+        // ACTUALLY WORKS DONT FUCK IT UP
+        // The euler rotation that is modified by the keyboard input has to be initialized to 0,
+        // you cannot use the euler rotation from the view matrix otherwise the rotation will compound onto itself
+        // and make it spin really really fast
+        const viewMatrix = new THREE.Matrix4().fromArray(webGL.getViewMatrix());
+        const rotationMatrix = extractRotation(viewMatrix.toArray());
+        const existingEulerRotation = new THREE.Euler().setFromRotationMatrix(
+          rotationMatrix,
+          "XYZ"
+        );
+        const eulerRotation = new THREE.Euler(0, 0, 0, "XYZ");
+
+        const rotationSens = 0.035;
+        if (code === "KeyN") {
+          eulerRotation.y -= rotationSens;
+        }
+        if (code === "KeyV") {
+          eulerRotation.y += rotationSens;
+        }
+        if (code === "KeyG") {
+          eulerRotation.z += rotationSens;
+        }
+        if (code === "KeyB") {
+          eulerRotation.z -= rotationSens;
+        }
+
+        console.log("existing euler", existingEulerRotation);
+        console.log("new euler", eulerRotation);
+
+        const newRotationMatrix = new THREE.Matrix4().fromArray(
+          webGL.getViewMatrix()
+        );
+        newRotationMatrix.makeRotationFromEuler(eulerRotation);
+
+        const translationMatrix = new THREE.Matrix4().fromArray(
+          webGL.getViewMatrix()
+        );
+
+        translationMatrix.multiply(newRotationMatrix);
+
+        webGL.putViewMatrix(translationMatrix.toArray());
+
+        // end of actually working stuff */
+
+        const viewMatrix = new THREE.Matrix4().fromArray(webGL.getViewMatrix());
+        const rotationMatrix = extractRotation(viewMatrix.toArray());
+        const existingEulerRotation = new THREE.Euler().setFromRotationMatrix(
+          rotationMatrix,
+          "XYZ"
+        );
+        const eulerRotation = new THREE.Euler(0, 0, 0, "XYZ");
+
+        const rotationSens = 0.035;
+        if (code === "KeyN") {
+          eulerRotation.y -= rotationSens;
+        }
+        if (code === "KeyV") {
+          eulerRotation.y += rotationSens;
+        }
+        if (code === "KeyG") {
+          eulerRotation.z += rotationSens;
+        }
+        if (code === "KeyB") {
+          eulerRotation.z -= rotationSens;
+        }
+
+        // original matrix without rotation
+        const originalMatrixRotation = new THREE.Matrix4().fromArray(
+          webGL.getViewMatrix()
+        );
+
+        const inverseExistingEulerRotation = new THREE.Euler(
+          -existingEulerRotation.x,
+          -existingEulerRotation.y,
+          -existingEulerRotation.z,
+          "ZYX"
+        );
+        showRotationAxis(inverseExistingEulerRotation);
+
+        originalMatrixRotation.makeRotationFromEuler(
+          inverseExistingEulerRotation
+        );
+
+        const originalMatrix = new THREE.Matrix4().fromArray(
+          webGL.getViewMatrix()
+        );
+
+        originalMatrix.multiply(originalMatrixRotation);
+
+        const overallEulerRotation = new THREE.Euler(
+          existingEulerRotation.x + eulerRotation.x,
+          existingEulerRotation.y + eulerRotation.y,
+          existingEulerRotation.z + eulerRotation.z,
+          "XYZ"
+        );
+
+        const overallRotationMatrix = new THREE.Matrix4().fromArray(
+          webGL.getViewMatrix()
+        );
+        overallRotationMatrix.makeRotationFromEuler(overallEulerRotation);
+
+        // console.log(overallEulerRotation);
+
+        originalMatrix.multiply(overallRotationMatrix);
+
+        webGL.putViewMatrix(originalMatrix.toArray());
+
+        // const viewMatrix = new THREE.Matrix4().fromArray(webGL.getViewMatrix());
+        // const eulerRotation = new THREE.Euler().setFromRotationMatrix(
+        //   viewMatrix,
+        //   "XYZ"
+        // );
+
+        // const originalMatrix = new THREE.Matrix4().fromArray(
+        //   webGL.getViewMatrix()
+        // );
+        // const inverseEulerRotation = new THREE.Euler(
+        //   -eulerRotation.x,
+        //   -eulerRotation.y,
+        //   -eulerRotation.z,
+        //   "XYZ"
+        // );
+        // // originalMatrix.makeRotationFromEuler(inverseEulerRotation);
+        // const rotationMatrix = new THREE.Matrix4().fromArray(
+        //   webGL.getViewMatrix()
+        // );
+        // rotationMatrix.makeRotationFromEuler(inverseEulerRotation);
+
+        // originalMatrix.multiply(rotationMatrix);
+
+        // printMatrix(originalMatrix.toArray(), "original matrix");
+
+        // console.log(eulerRotation);
+
+        // // webGL.updateScene();
+        // webGL.putViewMatrix(originalMatrix);
+
+        // const viewMatrix = new THREE.Matrix4().fromArray(webGL.getViewMatrix());
+        // const translationMatrix = extractTranslation(viewMatrix.toArray());
+        // const rotationMatrix = extractRotation(viewMatrix.toArray());
+        // const eulerRotation = new THREE.Euler().setFromRotationMatrix(
+        //   rotationMatrix,
+        //   "XYZ"
+        // );
+
+        // const rotationSens = 0.035;
+        // if (code === "KeyN") {
+        //   eulerRotation.y -= rotationSens;
+        // }
+        // if (code === "KeyV") {
+        //   eulerRotation.y += rotationSens;
+        // }
+        // if (code === "KeyG") {
+        //   eulerRotation.z += rotationSens;
+        // }
+        // if (code === "KeyB") {
+        //   eulerRotation.z -= rotationSens;
+        // }
+
+        // console.log(eulerRotation);
+
+        // viewMatrix.multiply(eulerAnglesToMatrix(eulerRotation));
+
+        // console.log(viewMatrix);
+
+        // webGL.putViewMatrix(viewMatrix.toArray());
+      }
+
+      let upAxis = null,
+        rightAxis = null,
+        frontAxis = null;
+      let col = 0xffffff;
+      const origin = new THREE.Vector3(0, 0, 0);
+      function showRotationAxis(eulerRotation) {
+        let upVec = new THREE.Vector3(0, 1, 0);
+        let rightVec = new THREE.Vector3(1, 0, 0);
+        let frontVec = new THREE.Vector3(0, 0, 1);
+
+        // removeRotationAxis();
+
+        upVec.applyEuler(eulerRotation);
+        rightVec.applyEuler(eulerRotation);
+        frontVec.applyEuler(eulerRotation);
+
+        debugVector(upVec);
+        debugVector(rightVec);
+        debugVector(frontVec);
+
+        // upAxis = new THREE.ArrowHelper(upVec, origin, 1, col);
+        // rightAxis = new THREE.ArrowHelper(rightVec, origin, 1, col);h
+        // frontAxis = new THREE.ArrowHelper(frontVec, origin, 1, col);
+
+        // webGL.scene.add(upAxis);
+        // webGL.scene.add(rightAxis);
+        // webGL.scene.add(frontAxis);
+
+        webGL.updateScene();
+      }
+      function removeRotationAxis() {
+        try {
+          webGL.scene.remove(upAxis);
+          webGL.scene.remove(rightAxis);
+          webGL.scene.remove(frontAxis);
+        } catch {}
+      }
+
+      function disable() {
+        window.removeEventListener("keydown", handleKeyDown);
+      }
+
+      function getNormalVector(matrix, point) {
+        let mx = matrix[12],
+          my = matrix[13],
+          mz = matrix[14];
+        let px = point[0],
+          py = point[1],
+          pz = point[2];
+        let nv = new THREE.Vector3(mx - px, my - py, mz - pz);
+        // console.log(JSON.parse(JSON.stringify({ matrix: {mx, my, mz}, point: { px, py, pz }, nv})));
+        return nv;
+      }
+
+      function rotationTest() {
+        // return;
+        const viewMatrixArr = webGL.getViewMatrix();
+        const viewMatrix = new THREE.Matrix4();
+        viewMatrix.fromArray(viewMatrixArr);
+
+        // const rotationMatrix = new THREE.Matrix4();
+        // viewMatrix.extractRotation(rotationMatrix);
+
+        const rotationMatrix = extractRotation(viewMatrix.elements);
+
+        printMatrix(rotationMatrix.elements);
+
+        setTimeout(() => webGL.putViewMatrix(rotationMatrix.toArray()), 5000);
+        // webGL.updateScene();
+      }
+
+      function vectorTest(x, y, z) {
+        let vec = new THREE.Vector3(x, y, z);
+        debugVector(vec);
+      }
+
+      function debugVector(vec, p = [0, 0, 0]) {
+        let origin = new THREE.Vector3(p[0], p[1], p[2]);
+        vec.normalize();
+        let arrowHelper = new THREE.ArrowHelper(vec, origin, 1, 0xffff00);
+        webGL.scene.add(arrowHelper);
+        webGL.updateScene();
+
+        setTimeout(() => {
+          webGL.scene.remove(arrowHelper);
+          webGL.updateScene();
+        }, 5000);
+      }
+
+      function zoom() {
+        window.addEventListener("wheel", (zoom) => {
+          const code = zoom.deltaY > 0 ? "+" : "-";
+          relativeMovement({ keyCode: `zoom${code}` });
+        });
+      }
+
+      function extractRotation(matrix) {
+        let x1 = matrix[0];
+        let x2 = matrix[4];
+        let x3 = matrix[8];
+
+        let y1 = matrix[1];
+        let y2 = matrix[5];
+        let y3 = matrix[9];
+
+        let z1 = matrix[2];
+        let z2 = matrix[6];
+        let z3 = matrix[10];
+
+        let xv = new THREE.Vector3(x1, x2, x3);
+        let yv = new THREE.Vector3(y1, y2, y3);
+        let zv = new THREE.Vector3(z1, z2, z3);
+
+        let sx = xv.length();
+        let sy = yv.length();
+        let sz = xv.length();
+
+        // prettier-ignore
+        let rotationMatrix = [
+          x1/sx, y1/sy, z1/sz, 0,
+          x2/sx, y2/sy, z2/sz, 0,
+          x3/sx, y3/sy, z3/sz, 0,
+          0, 0, 0, 1
+        ];
+
+        return new THREE.Matrix4().fromArray(rotationMatrix);
+      }
+
+      function extractTranslation(matrix) {
+        let x = matrix[3];
+        let y = matrix[7];
+        let z = matrix[11];
+
+        // prettier-ignore
+        let translationMatrix = [
+          1, 0, 0, x,
+          0, 1, 0, y,
+          0, 0, 1, z,
+          0, 0, 0, 1,
+        ];
+
+        return new THREE.Matrix4().fromArray(translationMatrix);
+      }
+
+      function eulerAnglesToMatrix(euler) {
+        const { x, y, z } = euler;
+
+        // prettier-ignore
+        const mx = [
+          0, 0, 0, 0,
+          0, Math.cos(x), -Math.sin(x), 0,
+          0, Math.sin(x), Math.cos(x), 0,
+          0, 0, 0, 1
+        ];
+        // prettier-ignore
+        const my = [
+          Math.cos(y), 0, Math.sin(y), 0,
+          0, 0, 0, 0,
+          -Math.sin(y), 0, Math.cos(y), 0,
+          0, 0, 0, 1
+        ];
+        // prettier-ignore
+        const mz = [
+          Math.cos(z), -Math.sin(z), 0, 0,
+          Math.sin(z), Math.cos(z), 0, 0,
+          0, 0, 0, 0,
+          0, 0, 0, 1
+        ];
+
+        const rmx = new THREE.Matrix4().fromArray(mx);
+        const rmy = new THREE.Matrix4().fromArray(my);
+        const rmz = new THREE.Matrix4().fromArray(mz);
+
+        rmx.multiply(rmy).multiply(rmz);
+
+        return rmx;
+      }
+
+      function getRelativeUpAxis() {
+        const viewMatrix = new THREE.Matrix4().fromArray(webGL.getViewMatrix());
+        const rotationMatrix = extractRotation(viewMatrix.toArray());
+        const existingEulerRotation = new THREE.Euler().setFromRotationMatrix(
+          rotationMatrix,
+          "XYZ"
+        );
+
+        const eulerRotation = new THREE.Euler(0, 0, 0, "XYZ");
+
+        const originalMatrixRotation = new THREE.Matrix4().fromArray(
+          webGL.getViewMatrix()
+        );
+
+        const inverseExistingEulerRotation = new THREE.Euler(
+          -existingEulerRotation.x,
+          -existingEulerRotation.y,
+          -existingEulerRotation.z,
+          "ZYX"
+        );
+
+        let upVec = new THREE.Vector3(0, 1, 0);
+        // let rightVec = new THREE.Vector3(1, 0, 0);
+        // let frontVec = new THREE.Vector3(0, 0, 1);
+
+        upVec.applyEuler(existingEulerRotation);
+        // rightVec.applyEuler(existingEulerRotation);
+        // frontVec.applyEuler(existingEulerRotation);
+
+        // debugVector(upVec);
+        // debugVector(rightVec);
+        // debugVector(frontVec);
+
+        return upVec;
+      }
+
+      function getRelativeAxes(debug = false) {
+        const viewMatrix = new THREE.Matrix4().fromArray(webGL.getViewMatrix());
+        const rotationMatrix = extractRotation(viewMatrix.toArray());
+        const existingEulerRotation = new THREE.Euler().setFromRotationMatrix(
+          rotationMatrix,
+          "XYZ"
+        );
+
+        const eulerRotation = new THREE.Euler(0, 0, 0, "XYZ");
+
+        const originalMatrixRotation = new THREE.Matrix4().fromArray(
+          webGL.getViewMatrix()
+        );
+
+        const inverseExistingEulerRotation = new THREE.Euler(
+          -existingEulerRotation.x,
+          -existingEulerRotation.y,
+          -existingEulerRotation.z,
+          "ZYX"
+        );
+
+        let upVec = new THREE.Vector3(0, 1, 0);
+        let rightVec = new THREE.Vector3(1, 0, 0);
+        let frontVec = new THREE.Vector3(0, 0, 1);
+
+        upVec.applyEuler(existingEulerRotation);
+        rightVec.applyEuler(existingEulerRotation);
+        frontVec.applyEuler(existingEulerRotation);
+
+        if (debug) {
+          debugVector(upVec);
+          debugVector(rightVec);
+          debugVector(frontVec);
+        }
+
+        return { up: upVec, right: rightVec, front: frontVec };
+      }
+
+      function getRelativeAxesForRotation(debug = false) {
+        const viewMatrix = new THREE.Matrix4().fromArray(webGL.getViewMatrix());
+        const rotationMatrix = extractRotation(viewMatrix.toArray());
+        const existingEulerRotation = new THREE.Euler().setFromRotationMatrix(
+          rotationMatrix,
+          "XYZ"
+        );
+
+        const eulerRotation = new THREE.Euler(0, 0, 0, "XYZ");
+
+        const originalMatrixRotation = new THREE.Matrix4().fromArray(
+          webGL.getViewMatrix()
+        );
+
+        const inverseExistingEulerRotation = new THREE.Euler(
+          -existingEulerRotation.x,
+          -existingEulerRotation.y,
+          -existingEulerRotation.z,
+          "ZYX"
+        );
+
+        let upVec = new THREE.Vector3(0, 1, 0);
+        let rightVec = new THREE.Vector3(1, 0, 0);
+        let frontVec = new THREE.Vector3(0, 0, 1);
+
+        upVec.applyEuler(inverseExistingEulerRotation);
+        rightVec.applyEuler(inverseExistingEulerRotation);
+        frontVec.applyEuler(inverseExistingEulerRotation);
+
+        if (debug) {
+          debugVector(upVec);
+          debugVector(rightVec);
+          debugVector(frontVec);
+        }
+
+        return { up: upVec, right: rightVec, front: frontVec };
+      }
+
+      // this function tracks the mouse in the window so that we can
+      // query the mouse position outside of an event. The mouse position
+      // is cached in the global window
+      $(document)
+        .mousemove(function (e) {
+          window.mouseX = e.pageX;
+          window.mouseY = e.pageY;
+          if ("TRACE_MOUSE_MESSAGES" in window && TRACE_MOUSE_MESSAGES)
+            console.log("mouse=[" + mouseX + ", " + +mouseY + "]");
+        })
+        .mouseover();
+    </script>
+
+    <style type="text/css">
+      .error {
+        color: red;
+      }
+
+      .success {
+        color: green;
+      }
+
+      #console_wrapper {
+        background-color: black;
+        color: white;
+        padding: 5px;
+      }
+
+      #console p {
+        padding: 0;
+        margin: 0;
+      }
+
+      #container {
+        background: #000;
+        width: 1024px;
+        height: 768px;
+      }
+      button {
+        padding: 10px;
+        size: 20px;
+        margin-top: 20px;
+      }
+      body {
+        background-color: black;
+        color: white;
+      }
+    </style>
+  </head>
+
+  <body onload="demoStart()">
+    <h1>WebGl/THREE.js 3DconnexionJS Sample</h1>
+    <div id="container" tabindex="0"></div>
+    <div>
+      <button onclick="enable()">Enable</button>
+      <button onclick="disable()">Disable</button>
+      <button onclick="rotateTest()">Rotate test</button>
+      <button onclick="zoom()">Mouse zoom</button>
+      <button onclick="rotationTest()">Rotate test</button>
+    </div>
+  </body>
+</html>
